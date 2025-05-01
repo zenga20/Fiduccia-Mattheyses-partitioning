@@ -34,5 +34,5 @@ Desktop.ini
 *.tmp
 *.swp
 
-superblue18/
-benchmark/
+.nets
+.nodes
