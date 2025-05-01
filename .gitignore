@@ -1,0 +1,35 @@
+# --- General C++ build artifacts ---
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.a
+*.lib
+
+# --- CMake ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+build/
+out/
+compile_commands.json
+
+# --- Visual Studio Code ---
+.vscode/
+
+# --- Mac OS ---
+.DS_Store
+
+# --- Windows ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Logs and temp files ---
+*.log
+*.tmp
+*.swp
