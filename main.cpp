@@ -392,8 +392,8 @@ int main() {
         int pass_best_step = 0;
         vector<string> moved_cells;
         vector<int> cut_history;
-        int no_improvment_count = 0;
-        const int max_no_improvment = 100; //adjustable parameter
+        int no_improvement_count = 0;
+        const int max_no_improvement = 100; //adjustable parameter
         
         cut_history.push_back(pass_best_cut);
         
@@ -419,17 +419,18 @@ int main() {
             
             cut = computeCutSize();
             cut_history.push_back(cut);
-          //  cout << "Pass " << pass << ", Step " << step << ": moved " << cell_to_move << ", cut = " << cut << endl;
-            
+            if (step % 1000 == 0) {
+                cout << "Pass " << pass << ", Step " << step << ": cut = " << cut << endl;
+            }
             // Track best solution in this pass
             if (cut < pass_best_cut) {
                 pass_best_cut = cut;
                 pass_best_step = step;
-                no_improvment_count = 0; // Reset no improvement count
+                no_improvement_count = 0; // Reset no improvement count
             } else {
-                no_improvment_count++;
-                if (no_improvment_count >= max_no_improvment) {
-                    cout << "Early stopping after " << no_improvment_count
+                no_improvement_count++;
+                if (no_improvement_count >= max_no_improvement) {
+                    cout << "Early stopping after " << no_improvement_count
                          << " steps without improvement" << endl;
                     break;  // Stop if no improvement for too many steps
                 }
@@ -452,7 +453,7 @@ int main() {
             // No improvement in this pass, stop
             break;
         }
-        cout << "Pass " << pass << ": best cut = " << best_cut << endl;
+        //cout << "Pass " << pass << ": best cut = " << best_cut << endl;
     }
 
     // Apply the best partition found
