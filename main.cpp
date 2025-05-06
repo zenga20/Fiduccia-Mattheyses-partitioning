@@ -334,8 +334,8 @@ void updateNeighborGains(const string& moved_cell) {
                     if (fm_cells[cc].partition == c.partition) from_part++;
                     else to_part++;
                 }
-                if (from_part == 0) gain--;
-                if (to_part == 0) gain++;
+                if (from_part == 0) gain++;
+                if (to_part == 0) gain--;
             }
             c.gain = gain;
 
@@ -419,7 +419,7 @@ int main() {
             
             cut = computeCutSize();
             cut_history.push_back(cut);
-            cout << "Pass " << pass << ", Step " << step << ": moved " << cell_to_move << ", cut = " << cut << endl;
+          //  cout << "Pass " << pass << ", Step " << step << ": moved " << cell_to_move << ", cut = " << cut << endl;
             
             // Track best solution in this pass
             if (cut < pass_best_cut) {
@@ -452,6 +452,7 @@ int main() {
             // No improvement in this pass, stop
             break;
         }
+        cout << "Pass " << pass << ": best cut = " << best_cut << endl;
     }
 
     // Apply the best partition found
