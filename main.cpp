@@ -392,6 +392,8 @@ int main() {
         int pass_best_step = 0;
         vector<string> moved_cells;
         vector<int> cut_history;
+        int no_improvment_count = 0;
+        const int max_no_improvment = 100; //adjustable parameter
         
         cut_history.push_back(pass_best_cut);
         
@@ -423,6 +425,14 @@ int main() {
             if (cut < pass_best_cut) {
                 pass_best_cut = cut;
                 pass_best_step = step;
+                no_improvment_count = 0; // Reset no improvement count
+            } else {
+                no_improvment_count++;
+                if (no_improvment_count >= max_no_improvment) {
+                    cout << "Early stopping after " << no_improvment_count
+                         << " steps without improvement" << endl;
+                    break;  // Stop if no improvement for too many steps
+                }
             }
         }
         
