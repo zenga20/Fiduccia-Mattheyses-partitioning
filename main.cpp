@@ -342,7 +342,7 @@ void updateNeighborGains(const string& moved_cell) {
 
 // -------------------- Main --------------------
 int main() {
-    parseAux("/Users/dongyunlee/Documents/SBU_2025_Spring/ESE326/superblue18 2/superblue18.aux");
+    parseAux("superblue18.aux");
     initializeFM();
     computeInitialGains();
 
