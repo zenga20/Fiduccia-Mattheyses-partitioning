@@ -4,4 +4,12 @@ project(FMPartitioner)
 set(CMAKE_CXX_STANDARD 17)
 set(SOURCES main.cpp)
 
+# optimization flags for release build
+if(MSVC)
+    # MSVC optimization flags
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Ob2 /Oi /Ot /GL /arch:AVX2 /fp:fast /GS- /EHsc- /GR-")
+else()
+    # GCC/Clang optimization flags
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -funroll-loops -fomit-frame-pointer -ffast-math -fno-strict-aliasing -fno-exceptions -fno-rtti -flto")
+endif()
 add_executable(fm_partition ${SOURCES})
