@@ -1,5 +1,6 @@
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 #include <vector>
 #include <string>
 #include <cstdlib>
@@ -14,6 +15,16 @@
 #include <chrono>
 
 using namespace std;
+
+// Area definition enum
+enum class AreaDefinition {
+    GATE_COUNT,
+    GATE_AREA
+};
+
+// Global area definition
+AreaDefinition current_area_definition = AreaDefinition::GATE_AREA;
+
 struct Cell {
     string name;
     int width;
@@ -24,9 +35,10 @@ struct Cell {
 };
 
 struct FMCell {
-    string name;
-    int area;
-    int partition; // 0 or 1
+    string name;  // Keep name for output reference
+    int id = -1;  // New field: integer identifier
+    int area = 0;
+    int partition = 0; // 0 or 1
     bool locked = false;
     int gain = 0;
 };
@@ -48,12 +60,29 @@ struct Row {
 const int MAX_GAIN = 100;  // Estimate max possible gain
 const int BUCKET_SIZE = 2 * MAX_GAIN + 1;  // From -MAX_GAIN to +MAX_GAIN
 
-vector<unordered_set<string>> gain_bucket_0(BUCKET_SIZE);
-vector<unordered_set<string>> gain_bucket_1(BUCKET_SIZE);
+// Track max gain indices for each partition
+int max_gain_0 = -MAX_GAIN;
+int max_gain_1 = -MAX_GAIN;
+
+// Use vector<int> for gain buckets instead of unordered_set<string>
+vector<vector<int>> gain_bucket_0(BUCKET_SIZE);
+vector<vector<int>> gain_bucket_1(BUCKET_SIZE);
+
+// Track which buckets are non-empty
+vector<bool> non_empty_0(BUCKET_SIZE, false);
+vector<bool> non_empty_1(BUCKET_SIZE, false);
 
 unordered_map<string, Cell> cells;
 vector<Net> nets;
 vector<Row> rows;
+
+// Integer indexing data structures
+unordered_map<string, int> cell_name_to_id; // Maps cell names to integer IDs
+vector<FMCell> fm_cells_vec;                // Vector of FM cells indexed by IDs
+vector<vector<int>> cell_to_nets_vec;       // Vector of nets for each cell by ID
+vector<vector<int>> net_to_cells_vec;       // Vector of cells for each net by ID
+unordered_map<string, int> net_name_to_id;  // Maps net names to integer IDs
+unordered_map<int, string> net_id_to_name;  // Maps net IDs back to names
 
 void parseNodes(const string &filename) {
     ifstream file(filename);
@@ -109,7 +138,7 @@ void parseNets(const string &filename) {
             istringstream iss(line);
             string dummy, colon;
             int degree;
-            iss >> dummy >> colon >> degree;   // ✅ read the “:” into colon, then degree
+            iss >> dummy >> colon >> degree;   // ✅ read the ":" into colon, then degree
 
             Net net;
             net.name = "net" + to_string(net_count++);
@@ -201,53 +230,77 @@ void parseAux(const string &filename) {
 
 
 
-unordered_map<string, FMCell> fm_cells;
-unordered_map<string, vector<string>> cell_to_nets;
-unordered_map<string, Net> net_map;
-
 // -------------------- FM Init --------------------
 void initializeFM() {
     srand(time(0));
 
-    // Initialize fm_cells from global "cells"
+    // First assign integer IDs to cells and nets for faster indexing
+    int cell_id = 0;
+    int net_id = 0;
+    
+    // Create cell ID mappings
     for (const auto& [name, c] : cells) {
         if (c.is_fixed) continue;
-        FMCell fc;
-        fc.name = name;
-        fc.area = c.width * c.height;
-        fc.partition = rand() % 2;
-        fm_cells[name] = fc;
+        cell_name_to_id[name] = cell_id++;
     }
-
+    
+    // Initialize FM cells vector and cell-to-nets vector
+    fm_cells_vec.resize(cell_id);
+    cell_to_nets_vec.resize(cell_id);
+    
+    // Create net ID mappings and net-to-cells vector
     for (const auto& net : nets) {
-        Net new_net;
-        new_net.name = net.name;
-        for (const auto& pin : net.pins) {
-            if (cells[pin].is_fixed) continue; // skip fixed pins completely
-            new_net.pins.push_back(pin);
-            cell_to_nets[pin].push_back(net.name);
-        }
-        net_map[net.name] = new_net;
+        net_name_to_id[net.name] = net_id;
+        net_id_to_name[net_id] = net.name;
+        net_id++;
     }
+    net_to_cells_vec.resize(net_id);
+    
+    // Initialize fm_cells with area and random partitions
+    for (const auto& [name, c] : cells) {
+        if (c.is_fixed) continue;
+        int id = cell_name_to_id[name];
+        
+        FMCell& fc = fm_cells_vec[id];
+        fc.name = name;
+        fc.id = id;
+        
+        // Set area based on selected definition
+        if (current_area_definition == AreaDefinition::GATE_COUNT) {
+            fc.area = 1;  // Each gate counts as 1
+        } else {
+            fc.area = c.width * c.height;  // Use actual gate area
+        }
+        fc.partition = rand() % 2;
+    }
+    
+    // Build net-to-cells and cell-to-nets relationships
+    for (const auto& net : nets) {
+        int net_id = net_name_to_id[net.name];
+        for (const auto& pin : net.pins) {
+            if (cells.find(pin) == cells.end() || cells[pin].is_fixed) continue;
+            if (cell_name_to_id.find(pin) == cell_name_to_id.end()) continue; // Skip pins not found in mapping
+            int cell_id = cell_name_to_id[pin];
+            net_to_cells_vec[net_id].push_back(cell_id);
+            cell_to_nets_vec[cell_id].push_back(net_id);
+        }
+    }
+    
     int p0 = 0, p1 = 0;
-    for (const auto& [name, c] : fm_cells) {
-        if (c.partition == 0) p0++;
+    for (const auto& cell : fm_cells_vec) {
+        if (cell.partition == 0) p0++;
         else p1++;
     }
     cout << "Partition sizes: P0=" << p0 << " P1=" << p1 << endl;
-
-
-
 }
 
 // -------------------- Cut Size --------------------
 int computeCutSize() {
     int cut = 0;
-    for (const auto& [net_name, net] : net_map) {
+    for (int net_id = 0; net_id < net_to_cells_vec.size(); net_id++) {
         int part0 = 0, part1 = 0;
-        for (const string& c : net.pins) {
-            if (fm_cells.count(c) == 0) continue; // skip fixed cells
-            if (fm_cells[c].partition == 0) part0++;
+        for (int cell_id : net_to_cells_vec[net_id]) {
+            if (fm_cells_vec[cell_id].partition == 0) part0++;
             else part1++;
         }
         if (part0 > 0 && part1 > 0) cut++;
@@ -257,110 +310,219 @@ int computeCutSize() {
 
 // -------------------- Gain Computation --------------------
 void computeInitialGains() {
-    for (auto& [name, cell] : fm_cells) {
+    for (int cell_id = 0; cell_id < fm_cells_vec.size(); cell_id++) {
         int gain = 0;
-        for (const string& net_name : cell_to_nets[name]) {
-            const auto& net = net_map[net_name];
+        for (int net_id : cell_to_nets_vec[cell_id]) {
             int from_part = 0;
             int to_part = 0;
-            for (const string& c : net.pins) {
-                if (c == name) continue;
-                if (fm_cells[c].partition == cell.partition) from_part++;
+            for (int neighbor_id : net_to_cells_vec[net_id]) {
+                if (neighbor_id == cell_id) continue;
+                if (fm_cells_vec[neighbor_id].partition == fm_cells_vec[cell_id].partition) 
+                    from_part++;
+                else 
+                    to_part++;
+            }
+            if (from_part == 0) gain++;
+            if (to_part == 0) gain--;
+        }
+        fm_cells_vec[cell_id].gain = gain;
+    }
+}
+
+void buildGainBuckets() {
+    // Reset tracking arrays
+    fill(non_empty_0.begin(), non_empty_0.end(), false);
+    fill(non_empty_1.begin(), non_empty_1.end(), false);
+    
+    // Clear all buckets
+    for (auto& bucket : gain_bucket_0) bucket.clear();
+    for (auto& bucket : gain_bucket_1) bucket.clear();
+    
+    max_gain_0 = -MAX_GAIN;
+    max_gain_1 = -MAX_GAIN;
+    
+    for (int cell_id = 0; cell_id < fm_cells_vec.size(); cell_id++) {
+        const auto& cell = fm_cells_vec[cell_id];
+        if (cell.locked) continue;
+        
+        int idx = cell.gain + MAX_GAIN;
+        if (idx < 0) idx = 0;
+        if (idx >= BUCKET_SIZE) idx = BUCKET_SIZE - 1;
+        
+        if (cell.partition == 0) {
+            gain_bucket_0[idx].push_back(cell_id);
+            non_empty_0[idx] = true;
+            max_gain_0 = max(max_gain_0, cell.gain);
+        } else {
+            gain_bucket_1[idx].push_back(cell_id);
+            non_empty_1[idx] = true;
+            max_gain_1 = max(max_gain_1, cell.gain);
+        }
+    }
+}
+
+int getMaxGainCell(int partition) {
+    auto& bucket = (partition == 0) ? gain_bucket_0 : gain_bucket_1;
+    auto& non_empty = (partition == 0) ? non_empty_0 : non_empty_1;
+    int& max_gain = (partition == 0) ? max_gain_0 : max_gain_1;
+    
+    while (max_gain >= -MAX_GAIN) {
+        int idx = max_gain + MAX_GAIN;
+        if (non_empty[idx] && !bucket[idx].empty()) {
+            return bucket[idx][0]; // Return first cell ID with max gain
+        }
+        max_gain--;
+    }
+    return -1; // No available cell found
+}
+
+void removeFromBucket(int cell_id) {
+    const auto& cell = fm_cells_vec[cell_id];
+    int idx = cell.gain + MAX_GAIN;
+    if (idx < 0) idx = 0;
+    if (idx >= BUCKET_SIZE) idx = BUCKET_SIZE - 1;
+    
+    auto& bucket = (cell.partition == 0) ? gain_bucket_0[idx] : gain_bucket_1[idx];
+    
+    // Find and remove the cell from the bucket
+    auto it = find(bucket.begin(), bucket.end(), cell_id);
+    if (it != bucket.end()) {
+        // Swap with the last element and pop (faster than erase)
+        *it = bucket.back();
+        bucket.pop_back();
+    }
+    
+    // Update non-empty status
+    if (bucket.empty()) {
+        if (cell.partition == 0) non_empty_0[idx] = false;
+        else non_empty_1[idx] = false;
+    }
+}
+
+void moveCell(int cell_id) {
+    FMCell& cell = fm_cells_vec[cell_id];
+    removeFromBucket(cell_id);
+    cell.locked = true;
+    cell.partition = 1 - cell.partition;
+}
+
+void updateNeighborGains(int moved_cell_id) {
+    unordered_set<int> affected_cells;  // Track cells that need gain updates
+    
+    for (int net_id : cell_to_nets_vec[moved_cell_id]) {
+        for (int neighbor_id : net_to_cells_vec[net_id]) {
+            if (neighbor_id == moved_cell_id || fm_cells_vec[neighbor_id].locked) continue;
+            affected_cells.insert(neighbor_id);
+        }
+    }
+
+    // Batch process gain updates
+    for (int neighbor_id : affected_cells) {
+        FMCell& c = fm_cells_vec[neighbor_id];
+        removeFromBucket(neighbor_id);
+
+        // Recompute gain
+        int gain = 0;
+        for (int net_id : cell_to_nets_vec[neighbor_id]) {
+            int from_part = 0, to_part = 0;
+            for (int cell_id : net_to_cells_vec[net_id]) {
+                if (cell_id == neighbor_id) continue;
+                if (fm_cells_vec[cell_id].partition == c.partition) from_part++;
                 else to_part++;
             }
             if (from_part == 0) gain++;
             if (to_part == 0) gain--;
         }
-        cell.gain = gain;
-    }
-}
+        c.gain = gain;
 
-void buildGainBuckets() {
-    for (const auto& [name, cell] : fm_cells) {
-        if (cell.locked) continue;
-        int idx = cell.gain + MAX_GAIN;
-        if (cell.partition == 0)
-            gain_bucket_0[idx].insert(name);
-        else
-            gain_bucket_1[idx].insert(name);
-    }
-}
-
-string getMaxGainCell(int partition) {
-    auto& bucket = (partition == 0) ? gain_bucket_0 : gain_bucket_1;
-    for (int i = BUCKET_SIZE - 1; i >= 0; --i) {
-        if (!bucket[i].empty()) {
-            return *bucket[i].begin();  // Return any one cell with max gain
+        // Re-insert with new gain
+        int idx = c.gain + MAX_GAIN;
+        if (idx < 0) idx = 0;
+        if (idx >= BUCKET_SIZE) idx = BUCKET_SIZE - 1;
+        
+        if (c.partition == 0) {
+            gain_bucket_0[idx].push_back(neighbor_id);
+            non_empty_0[idx] = true;
+            max_gain_0 = max(max_gain_0, c.gain);
+        } else {
+            gain_bucket_1[idx].push_back(neighbor_id);
+            non_empty_1[idx] = true;
+            max_gain_1 = max(max_gain_1, c.gain);
         }
     }
-    return "";  // No available cell
 }
 
-void removeFromBucket(const FMCell& cell) {
-    int idx = cell.gain + MAX_GAIN;
-    if (cell.partition == 0)
-        gain_bucket_0[idx].erase(cell.name);
-    else
-        gain_bucket_1[idx].erase(cell.name);
-}
+int incrementalUpdateCut(int moved_cell_id, int current_cut) {
+    const auto& cell = fm_cells_vec[moved_cell_id];
+    int old_partition = 1 - cell.partition; // The partition before the move
+    int delta = 0; // Change in cut size
 
-void moveCell(const string& cell_name) {
-    FMCell& cell = fm_cells[cell_name];
-
-    removeFromBucket(cell);     // remove from old bucket
-    cell.locked = true;         // lock it
-    cell.partition = 1 - cell.partition;  // flip partition
-}
-
-void updateNeighborGains(const string& moved_cell) {
-    int old_part = 1 - fm_cells[moved_cell].partition;
-
-    for (const string& net_name : cell_to_nets[moved_cell]) {
-        const auto& net = net_map[net_name];
-
-        for (const string& neighbor : net.pins) {
-            if (neighbor == moved_cell || fm_cells[neighbor].locked) continue;
-
-            FMCell& c = fm_cells[neighbor];
-            removeFromBucket(c);  // old gain bucket
-
-            // Recompute gain
-            int gain = 0;
-            for (const string& net_name2 : cell_to_nets[neighbor]) {
-                const auto& net2 = net_map[net_name2];
-                int from_part = 0, to_part = 0;
-                for (const string& cc : net2.pins) {
-                    if (cc == neighbor) continue;
-                    if (fm_cells[cc].partition == c.partition) from_part++;
-                    else to_part++;
-                }
-                if (from_part == 0) gain++;
-                if (to_part == 0) gain--;
+    for (int net_id : cell_to_nets_vec[moved_cell_id]) {
+        // Count pins in each partition before the move
+        int old_part0 = 0, old_part1 = 0;
+        for (int cell_id : net_to_cells_vec[net_id]) {
+            if (cell_id == moved_cell_id) {
+                // Use the old partition for the moved cell
+                if (old_partition == 0) old_part0++;
+                else old_part1++;
+            } else {
+                // Use current partition for other cells
+                if (fm_cells_vec[cell_id].partition == 0) old_part0++;
+                else old_part1++;
             }
-            c.gain = gain;
-
-            // Re-insert with new gain
-            int idx = c.gain + MAX_GAIN;
-            if (c.partition == 0)
-                gain_bucket_0[idx].insert(neighbor);
-            else
-                gain_bucket_1[idx].insert(neighbor);
         }
+        
+        // Count pins in each partition after the move
+        int new_part0 = 0, new_part1 = 0;
+        for (int cell_id : net_to_cells_vec[net_id]) {
+            if (fm_cells_vec[cell_id].partition == 0) new_part0++;
+            else new_part1++;
+        }
+        
+        // Check if the net's cut status changed
+        bool was_cut = (old_part0 > 0 && old_part1 > 0);
+        bool is_cut = (new_part0 > 0 && new_part1 > 0);
+        
+        if (was_cut && !is_cut) delta--; // Net is no longer cut
+        if (!was_cut && is_cut) delta++; // Net is now cut
     }
+    
+    return current_cut + delta;
 }
-
-
-
 
 // -------------------- Main --------------------
 int main() {
+    
+    
+    // Prompt user for area definition
+    cout << "Choose area definition for FM algorithm:" << endl;
+    cout << "1. Number of gates (each gate counts as 1)" << endl;
+    cout << "2. Area of gates (width * height)" << endl;
+    cout << "Enter choice (1 or 2): ";
+    
+    int choice;
+    while (true) {
+        cin >> choice;
+        if (choice == 1) {
+            current_area_definition = AreaDefinition::GATE_COUNT;
+            cout << "Using gate count as area definition" << endl;
+            break;
+        } else if (choice == 2) {
+            current_area_definition = AreaDefinition::GATE_AREA;
+            cout << "Using gate area as area definition" << endl;
+            break;
+        } else {
+            cout << "Invalid choice. Please enter 1 or 2: ";
+        }
+    }
     auto start = chrono::high_resolution_clock::now();
+
     try {
         cout << "Current working directory: " << filesystem::current_path() << endl;
         parseAux("superblue18.aux");
     } catch (const exception& e) {
         cerr << e.what() << endl;
-        return 1; // Exit with error code when parsing fails
+        return 1;
     }
     initializeFM();
     computeInitialGains();
@@ -371,61 +533,77 @@ int main() {
     buildGainBuckets();
 
     int best_cut = cut;
-    unordered_map<string, int> best_partition;
-    for (const auto& [name, c] : fm_cells)
-        best_partition[name] = c.partition;
+    vector<int> best_partition(fm_cells_vec.size());
+    for (int i = 0; i < fm_cells_vec.size(); i++) {
+        best_partition[i] = fm_cells_vec[i].partition;
+    }
 
     // Add multiple passes
     for (int pass = 0; pass < 10; pass++) {
         // Unlock all cells
-        for (auto& [name, c] : fm_cells) {
-            c.locked = false;
+        for (auto& cell : fm_cells_vec) {
+            cell.locked = false;
         }
         
-        // Clear and rebuild buckets
-        for (auto& bucket : gain_bucket_0) bucket.clear();
-        for (auto& bucket : gain_bucket_1) bucket.clear();
-        computeInitialGains();
+        // Rebuild buckets
         buildGainBuckets();
         
         int pass_best_cut = computeCutSize();
         int pass_best_step = 0;
-        vector<string> moved_cells;
+        vector<int> moved_cells;
         vector<int> cut_history;
         int no_improvement_count = 0;
-        const int max_no_improvement = 100; //adjustable parameter
+        const int max_no_improvement = 50; // Increased for better optimization
         
         cut_history.push_back(pass_best_cut);
         
-        // Move cells until all are locked
-        for (int step = 0; step < fm_cells.size(); step++) {
-            // Balance calculation
-            int p0_area = 0, p1_area = 0;
-            for (const auto& [name, cell] : fm_cells) {
-                if (!cell.locked) {
-                    if (cell.partition == 0) p0_area += cell.area;
-                    else p1_area += cell.area;
+        // Move cells until all are locked or no more improvement
+        for (int step = 0; step < fm_cells_vec.size(); step++) {
+            // Cache p0/p1 areas for better performance
+            static int p0_area = 0, p1_area = 0;
+            
+            // Only recalculate areas every 100 steps or at beginning
+            if (step == 0) {
+                p0_area = 0;
+                p1_area = 0;
+                for (const auto& cell : fm_cells_vec) {
+                    if (!cell.locked) {
+                        if (cell.partition == 0) p0_area += cell.area;
+                        else p1_area += cell.area;
+                    }
                 }
             }
             
             // Select cell to move
             int move_from = (p0_area > p1_area) ? 0 : 1;
-            string cell_to_move = getMaxGainCell(move_from);
-            if (cell_to_move.empty()) break;
+            int cell_to_move = getMaxGainCell(move_from);
+            if (cell_to_move == -1) break;
+            
+            // Update area balance proactively
+            if (fm_cells_vec[cell_to_move].partition == 0) {
+                p0_area -= fm_cells_vec[cell_to_move].area;
+                p1_area += fm_cells_vec[cell_to_move].area;
+            } else {
+                p0_area += fm_cells_vec[cell_to_move].area;
+                p1_area -= fm_cells_vec[cell_to_move].area;
+            }
             
             moved_cells.push_back(cell_to_move);
             moveCell(cell_to_move);
             updateNeighborGains(cell_to_move);
             
-            cut = computeCutSize();
+            cut = incrementalUpdateCut(cell_to_move, cut);
             cut_history.push_back(cut);
-            if (step % 1000 == 0) {
+            
+            // Log less frequently for better performance
+            if (step % 10000 == 0) {
                 cout << "Pass " << pass << ", Step " << step << ": cut = " << cut << endl;
             }
+            
             // Track best solution in this pass
             if (cut < pass_best_cut) {
                 pass_best_cut = cut;
-                pass_best_step = step;
+                pass_best_step = moved_cells.size() - 1;
                 no_improvement_count = 0; // Reset no improvement count
             } else {
                 no_improvement_count++;
@@ -440,31 +618,34 @@ int main() {
         // Restore best solution from this pass
         for (int i = moved_cells.size() - 1; i > pass_best_step; i--) {
             moveCell(moved_cells[i]); // Move back
+            cut = incrementalUpdateCut(moved_cells[i], cut);
         }
-        cut = computeCutSize();
+       
+        cout << "Pass " << pass << " complete. Best cut: " << pass_best_cut << endl;
         
         // Update global best solution
         if (cut < best_cut) {
             best_cut = cut;
-            for (const auto& [name, c] : fm_cells) {
-                best_partition[name] = c.partition;
+            for (int i = 0; i < fm_cells_vec.size(); i++) {
+                best_partition[i] = fm_cells_vec[i].partition;
             }
         } else {
             // No improvement in this pass, stop
+            cout << "No improvement in this pass, stopping." << endl;
             break;
         }
-        //cout << "Pass " << pass << ": best cut = " << best_cut << endl;
     }
 
     // Apply the best partition found
-    for (auto& [name, c] : fm_cells)
-        c.partition = best_partition[name];
+    for (int i = 0; i < fm_cells_vec.size(); i++) {
+        fm_cells_vec[i].partition = best_partition[i];
+    }
 
     cout << "Best cut found: " << best_cut << endl;
 
     ofstream fout("partition_result.txt");
-    for (const auto& [name, c] : fm_cells) {
-        fout << name << " " << c.partition << "\n";
+    for (int i = 0; i < fm_cells_vec.size(); i++) {
+        fout << fm_cells_vec[i].name << " " << fm_cells_vec[i].partition << "\n";
     }
     fout.close();
     auto end = chrono::high_resolution_clock::now();
