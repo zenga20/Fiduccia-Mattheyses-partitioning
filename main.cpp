@@ -268,8 +268,8 @@ void computeInitialGains() {
                 if (fm_cells[c].partition == cell.partition) from_part++;
                 else to_part++;
             }
-            if (from_part == 0) gain--;
-            if (to_part == 0) gain++;
+            if (from_part == 0) gain++;
+            if (to_part == 0) gain--;
         }
         cell.gain = gain;
     }
@@ -377,15 +377,16 @@ int main() {
         best_partition[name] = c.partition;
 
     for (int step = 0; step < fm_cells.size(); ++step) {
-        int p0_size = count_if(fm_cells.begin(), fm_cells.end(), [](auto& p) {
-            return p.second.partition == 0 && !p.second.locked;
-        });
-        int p1_size = count_if(fm_cells.begin(), fm_cells.end(), [](auto& p) {
-            return p.second.partition == 1 && !p.second.locked;
-        });
+        int p0_area = 0, p1_area = 0;
+        for (const auto& [name, cell] : fm_cells) {
+            if (!cell.locked) {
+                if (cell.partition == 0) p0_area += cell.area;
+        else p1_area += cell.area;
+            }
+        }
 
         // Balance: pick from larger side
-        int move_from = (p0_size > p1_size) ? 0 : 1;
+        int move_from = (p0_area > p1_area) ? 0 : 1;
         string cell_to_move = getMaxGainCell(move_from);
         if (cell_to_move.empty()) break;
 
