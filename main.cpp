@@ -10,7 +10,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cassert>
-
+#include <filesystem>
 using namespace std;
 struct Cell {
     string name;
@@ -161,9 +161,19 @@ void parseScl(const string &filename) {
 }
 
 void parseAux(const string &filename) {
-    ifstream file(filename);
+    cout << "Attempting to open .aux file: " << filename << endl;
+    string basePath= filesystem::current_path().parent_path().parent_path().string() + "/superblue18 2/";
+    cout << "Looking for aux files in this directory: " << basePath << endl;
+    string fullPath= basePath + filename;
+    cout << "Full path to aux file: " << fullPath << endl;
+    ifstream file(fullPath);
+    if (!file.is_open()) {
+        throw runtime_error("Error: Could not open .aux file: " + fullPath);
+    }
+    cout << "Opened .aux file: " << filename << endl;
     string line;
     getline(file, line);
+    cout << "Read line from .aux file: " << line << endl;
     istringstream iss(line);
 
     string keyword;
@@ -172,7 +182,7 @@ void parseAux(const string &filename) {
 
     iss >> keyword >> colon >> nodesFile >> netsFile >> wtsFile >> plFile >> sclFile >> shapesFile >> routeFile;
 
-    string basePath = "/Users/dongyunlee/Documents/SBU_2025_Spring/ESE326/superblue18 2/";
+    
 
     cout << "nodes file: " << nodesFile << endl;
     cout << "nets file: " << netsFile << endl;
@@ -342,14 +352,19 @@ void updateNeighborGains(const string& moved_cell) {
 
 // -------------------- Main --------------------
 int main() {
-    parseAux("superblue18.aux");
+    try {
+        cout << "Current working directory: " << filesystem::current_path() << endl;
+        parseAux("superblue18.aux");
+    } catch (const exception& e) {
+        cerr << e.what() << endl;
+        return 1; // Exit with error code when parsing fails
+    }
     initializeFM();
     computeInitialGains();
 
     int cut = computeCutSize();
     cout << "Initial cut size: " << cut << endl;
 
-    // TODO: implement gain bucket, move loop, locking, best cut tracking
 
     buildGainBuckets();
 
