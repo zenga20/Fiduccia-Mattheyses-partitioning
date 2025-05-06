@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
+#include <chrono>
+
 using namespace std;
 struct Cell {
     string name;
@@ -352,6 +354,7 @@ void updateNeighborGains(const string& moved_cell) {
 
 // -------------------- Main --------------------
 int main() {
+    auto start= chrono::high_resolution_clock::now();
     try {
         cout << "Current working directory: " << filesystem::current_path() << endl;
         parseAux("superblue18.aux");
@@ -408,6 +411,8 @@ int main() {
         fout << name << " " << c.partition << "\n";
     }
     fout.close();
-
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed = end - start;
+    cout << "Elapsed time: " << elapsed.count() << " seconds" << endl;
     return 0;
 }
