@@ -354,7 +354,7 @@ void updateNeighborGains(const string& moved_cell) {
 
 // -------------------- Main --------------------
 int main() {
-    auto start= chrono::high_resolution_clock::now();
+    auto start = chrono::high_resolution_clock::now();
     try {
         cout << "Current working directory: " << filesystem::current_path() << endl;
         parseAux("superblue18.aux");
@@ -368,7 +368,6 @@ int main() {
     int cut = computeCutSize();
     cout << "Initial cut size: " << cut << endl;
 
-
     buildGainBuckets();
 
     int best_cut = cut;
@@ -376,32 +375,76 @@ int main() {
     for (const auto& [name, c] : fm_cells)
         best_partition[name] = c.partition;
 
-    for (int step = 0; step < fm_cells.size(); ++step) {
-        int p0_area = 0, p1_area = 0;
-        for (const auto& [name, cell] : fm_cells) {
-            if (!cell.locked) {
-                if (cell.partition == 0) p0_area += cell.area;
-        else p1_area += cell.area;
+    // Add multiple passes
+    for (int pass = 0; pass < 10; pass++) {
+        // Unlock all cells
+        for (auto& [name, c] : fm_cells) {
+            c.locked = false;
+        }
+        
+        // Clear and rebuild buckets
+        for (auto& bucket : gain_bucket_0) bucket.clear();
+        for (auto& bucket : gain_bucket_1) bucket.clear();
+        computeInitialGains();
+        buildGainBuckets();
+        
+        int pass_best_cut = computeCutSize();
+        int pass_best_step = 0;
+        vector<string> moved_cells;
+        vector<int> cut_history;
+        
+        cut_history.push_back(pass_best_cut);
+        
+        // Move cells until all are locked
+        for (int step = 0; step < fm_cells.size(); step++) {
+            // Balance calculation
+            int p0_area = 0, p1_area = 0;
+            for (const auto& [name, cell] : fm_cells) {
+                if (!cell.locked) {
+                    if (cell.partition == 0) p0_area += cell.area;
+                    else p1_area += cell.area;
+                }
+            }
+            
+            // Select cell to move
+            int move_from = (p0_area > p1_area) ? 0 : 1;
+            string cell_to_move = getMaxGainCell(move_from);
+            if (cell_to_move.empty()) break;
+            
+            moved_cells.push_back(cell_to_move);
+            moveCell(cell_to_move);
+            updateNeighborGains(cell_to_move);
+            
+            cut = computeCutSize();
+            cut_history.push_back(cut);
+            cout << "Pass " << pass << ", Step " << step << ": moved " << cell_to_move << ", cut = " << cut << endl;
+            
+            // Track best solution in this pass
+            if (cut < pass_best_cut) {
+                pass_best_cut = cut;
+                pass_best_step = step;
             }
         }
-
-        // Balance: pick from larger side
-        int move_from = (p0_area > p1_area) ? 0 : 1;
-        string cell_to_move = getMaxGainCell(move_from);
-        if (cell_to_move.empty()) break;
-
-        moveCell(cell_to_move);
-        updateNeighborGains(cell_to_move);
-
+        
+        // Restore best solution from this pass
+        for (int i = moved_cells.size() - 1; i > pass_best_step; i--) {
+            moveCell(moved_cells[i]); // Move back
+        }
         cut = computeCutSize();
-        cout << "Step " << step << ": moved " << cell_to_move << ", cut = " << cut << endl;
-
+        
+        // Update global best solution
         if (cut < best_cut) {
             best_cut = cut;
-            for (const auto& [name, c] : fm_cells)
+            for (const auto& [name, c] : fm_cells) {
                 best_partition[name] = c.partition;
+            }
+        } else {
+            // No improvement in this pass, stop
+            break;
         }
     }
+
+    // Apply the best partition found
     for (auto& [name, c] : fm_cells)
         c.partition = best_partition[name];
 
@@ -417,3 +460,4 @@ int main() {
     cout << "Elapsed time: " << elapsed.count() << " seconds" << endl;
     return 0;
 }
+
