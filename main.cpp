@@ -193,7 +193,7 @@ void parseScl(const string &filename) {
 
 void parseAux(const string &filename) {
     cout << "Attempting to open .aux file: " << filename << endl;
-    string basePath= filesystem::current_path().parent_path().parent_path().string() + "/superblue18 2/";
+    string basePath= filesystem::current_path().parent_path().string() + "/superblue18 2/";
     cout << "Looking for aux files in this directory: " << basePath << endl;
     string fullPath= basePath + filename;
     cout << "Full path to aux file: " << fullPath << endl;
